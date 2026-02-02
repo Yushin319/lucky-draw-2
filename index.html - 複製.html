@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Agent 預測抽獎系統 - 手動翻牌專業版</title>
+    <style>
+        :root {
+            --win-color: #2980b9;
+            --header-bg: #ffffff;
+            --card-back: #bdc3c7;
+        }
+
+        body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; text-align: center; }
+        
+        #header-area {
+            background: var(--header-bg);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            max-width: 900px;
+            margin: 0 auto 30px;
+            border-top: 10px solid var(--win-color);
+        }
+
+        h1 { color: #2c3e50; margin: 0; }
+        .subtitle { font-size: 1.2rem; color: #555; margin: 10px 0; font-weight: bold; }
+        .agent-name { padding: 2px 10px; border-radius: 5px; color: white; background: var(--win-color); }
+
+        textarea { 
+            width: 100%; height: 80px; border: 1px solid #ddd; border-radius: 8px; 
+            padding: 10px; font-size: 12px; margin: 10px 0;
+        }
+
+        button { 
+            padding: 10px 25px; font-size: 16px; cursor: pointer; border: none; 
+            border-radius: 50px; transition: 0.3s; margin: 5px; font-weight: bold;
+        }
+        .btn-init { background: #34495e; color: white; }
+        .btn-init:hover { background: #2c3e50; transform: scale(1.05); }
+
+        /* --- 3D 卡牌核心樣式 --- */
+        .card-grid { 
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); 
+            gap: 15px; padding: 20px; max-width: 1200px; margin: 0 auto;
+            perspective: 1000px;
+        }
+
+        .card-container {
+            height: 120px;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        /* 懸停效果：讓抽獎人知道可以點擊 */
+        .card-container:not(.flipped):hover {
+            transform: translateY(-10px) rotateX(10deg);
+            filter: brightness(1.1);
+        }
+
+        .card-container.flipped {
+            transform: rotateY(180deg);
+            cursor: default;
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            font-weight: bold;
+        }
+
+        .card-front {
+            background: linear-gradient(135deg, #7f8c8d 0%, #bdc3c7 100%);
+            color: white;
+            font-size: 28px;
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+
+        .card-back {
+            background: var(--win-color);
+            color: white;
+            transform: rotateY(180deg);
+            font-size: 15px;
+            padding: 10px;
+            text-align: center;
+            flex-direction: column;
+        }
+
+        .badge { font-size: 11px; background: rgba(255,255,255,0.25); padding: 2px 8px; border-radius: 20px; display: inline-block; margin-bottom: 8px; }
+        .name-text { display: block; word-break: break-all; font-size: 16px; }
+        
+        #msg { font-size: 20px; font-weight: bold; margin-top: 15px; color: #34495e; line-height: 1.6; min-height: 60px; }
+        .winner-list { color: #e74c3c; font-size: 26px; text-shadow: 1px 1px 0px white; }
+        
+        /* 中獎卡片特效 */
+        .card-container.flipped .card-back {
+            border: 3px solid #f1c40f;
+            box-shadow: 0 0 15px rgba(241, 196, 15, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header-area">
+        <h1 id="mainTitle">🏆 AI Agent 預測抽獎</h1>
+        <div class="subtitle" id="subTitle">請貼入名單並點擊「洗牌」開始互動</div>
+        
+        <textarea id="nameList" placeholder="直接從 Excel 貼上名單..."></textarea>
+        
+        <div class="btn-group">
+            <button class="btn-init" onclick="init()">1. 匯入名單並重新洗牌</button>
+        </div>
+        <div id="msg">等待匯入資料...</div>
+    </div>
+
+    <div id="card-grid" class="card-grid"></div>
+
+    <script>
+        let employees = [];
+        let currentTier = ""; 
+        let agentName = "";
+        let flippedCount = 0;
+        let winnerNames = [];
+
+        function init() {
+            const rawInput = document.getElementById('nameList').value.trim();
+            if (!rawInput) {
+                alert("請先貼入名單！");
+                return;
+            }
+
+            // 1. 辨識獎項邏輯
+            if (rawInput.includes("鼠點通")) {
+                currentTier = "冠軍"; agentName = "鼠點通";
+                document.documentElement.style.setProperty('--win-color', '#f1c40f');
+            } else if (rawInput.includes("座標之力")) {
+                currentTier = "亞軍"; agentName = "座標之力";
+                document.documentElement.style.setProperty('--win-color', '#3498db');
+            } else if (rawInput.includes("服務小當家")) {
+                currentTier = "季軍"; agentName = "服務小當家";
+                document.documentElement.style.setProperty('--win-color', '#e67e22');
+            } else {
+                currentTier = "參與獎"; agentName = "參與者";
+                document.documentElement.style.setProperty('--win-color', '#95a5a6');
+            }
+
+            document.getElementById('mainTitle').innerText = `🏆 預測${currentTier}抽獎`;
+            document.getElementById('subTitle').innerHTML = `請邀請抽獎人手動翻開 <span class="agent-name">${agentName}</span> 的預測者！`;
+
+            // 2. 解析名單
+            employees = rawInput.split('\n')
+                .map(line => line.trim())
+                .filter(line => line !== "" && !line.includes('empl_addr'))
+                .map(line => line.split('@')[0]);
+
+            // 3. 洗牌演算法 (Fisher-Yates Shuffle)
+            for (let i = employees.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [employees[i], employees[j]] = [employees[j], employees[i]];
+            }
+
+            // 4. 重置狀態
+            flippedCount = 0;
+            winnerNames = [];
+            
+            // 5. 生成卡牌
+            const grid = document.getElementById('card-grid');
+            grid.innerHTML = '';
+            
+            employees.forEach((name, i) => {
+                const container = document.createElement('div');
+                container.className = 'card-container';
+                container.id = 'c' + i;
+                
+                // 綁定點擊事件
+                container.onclick = function() { handleFlip(this, name); };
+                
+                container.innerHTML = `
+                    <div class="card-face card-front">${i + 1}</div>
+                    <div class="card-face card-back">
+                        <span class="badge">預測${currentTier}</span>
+                        <span class="name-text">${name}</span>
+                    </div>
+                `;
+                grid.appendChild(container);
+            });
+            
+            document.getElementById('msg').innerHTML = `🎲 已打亂排序！請從上方 ${employees.length} 張牌中<br>「手動翻開」5 位幸運兒`;
+        }
+
+        function handleFlip(cardElement, name) {
+            // 防止重複點擊同一張，或翻超過 5 張
+            if (cardElement.classList.contains('flipped')) return;
+            
+            if (flippedCount >= 5) {
+                alert("本輪已翻開 5 位得獎者！若要重新抽獎請點擊洗牌按鈕。");
+                return;
+            }
+
+            // 執行翻轉
+            cardElement.classList.add('flipped');
+            flippedCount++;
+            winnerNames.push(name);
+
+            // 更新即時狀態
+            if (flippedCount < 5) {
+                document.getElementById('msg').innerHTML = `🎯 已翻開 ${flippedCount} 位，還剩下 ${5 - flippedCount} 位...`;
+            } else {
+                document.getElementById('msg').innerHTML = `🎉 抽獎完成！恭喜中獎人：<br><span class="winner-list">${winnerNames.join('、')}</span>`;
+                // 自動滾動到最後一張翻開的牌
+                cardElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    </script>
+</body>
+</html>
